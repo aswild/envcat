@@ -1,7 +1,7 @@
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
 
 use anstyle::{AnsiColor, Style};
+use anyhow::Context as _;
 use clap::Parser;
 
 const STYLE_KEY: Style = color_style(AnsiColor::Green);
@@ -49,28 +49,50 @@ fn print_env<W: Write>(buf: &[u8], out: &mut W) -> io::Result<()> {
 #[derive(Debug, Parser)]
 #[command(version)]
 struct Args {
-    /// File path, omit or specify '-' to read stdin
-    file: Option<PathBuf>,
+    /// FILE is a process' PID instead of a file path.
+    ///
+    /// This is a shorthand for reading `/proc/<pid>/environ`
+    #[arg(short, long, requires = "file")]
+    pid: bool,
+
+    /// File path, omit or specify '-' to read stdin.
+    ///
+    /// When using --pid, this is a process ID number
+    file: Option<String>,
 }
 
 fn run() -> anyhow::Result<()> {
     let args = Args::parse();
-    let data = match &args.file {
-        None => read_stdin()?,
-        Some(path) if path == Path::new("-") => read_stdin()?,
-        Some(path) => std::fs::read(path)?,
+    let path = if args.pid {
+        let pid = args
+            .file
+            .expect("pid option but no file")
+            .parse::<u32>()
+            .context("failed to parse PID argument as integer")?;
+        Some(format!("/proc/{pid}/environ"))
+    } else {
+        match args.file.as_deref() {
+            Some("-") | None => None,
+            Some(path) => Some(path.into()),
+        }
+    };
+
+    let data = match &path {
+        Some(path) => std::fs::read(path).with_context(|| format!("failed to read {path}"))?,
+        None => {
+            let mut buf = Vec::new();
+            io::stdin()
+                .lock()
+                .read_to_end(&mut buf)
+                .context("failed to read stdin")?;
+            buf
+        }
     };
 
     let mut out = anstream::stdout().lock();
     print_env(&data, &mut out)?;
 
     Ok(())
-}
-
-fn read_stdin() -> io::Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    io::stdin().lock().read_to_end(&mut buf)?;
-    Ok(buf)
 }
 
 fn main() {
