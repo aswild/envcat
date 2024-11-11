@@ -1,0 +1,11 @@
+[package]
+name = "envcat"
+version = "0.1.0"
+authors = ["Allen Wild <allenwild93@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+anstream = "0.6.18"
+anstyle = "1.0.10"
+anyhow = "1.0.93"
+clap = { version = "4.5.20", features = ["cargo", "derive", "wrap_help"] }
