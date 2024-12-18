@@ -32,21 +32,52 @@ impl Pattern {
     }
 }
 
+/// Iterator over NULL separated chunks of a byte slice.
+///
+/// Consecutive NULLs, or a slice starting with NULL, will yield empty slices from the iterator.
+/// However if the input slice ends with NULL, an empty slice will not be yielded at the end of
+/// iteration (for implementation reasons).
+///
+/// Is this materially better than `buf.split(|b| *b == 0u8)`? Probably not, but it was fun to
+/// write.
+struct NullSplit<'a>(&'a [u8]);
+
+impl<'a> Iterator for NullSplit<'a> {
+    type Item = &'a [u8];
+
+    fn next(&mut self) -> Option<&'a [u8]> {
+        if self.0.is_empty() {
+            None
+        } else {
+            match memchr::memchr(0u8, self.0) {
+                Some(pos) => {
+                    let ret = &self.0[..pos];
+                    self.0 = &self.0[(pos + 1)..];
+                    Some(ret)
+                }
+                None => {
+                    let ret = self.0;
+                    self.0 = &[];
+                    Some(ret)
+                }
+            }
+        }
+    }
+}
+
 fn print_env<W: Write>(buf: &[u8], out: &mut W, pattern: &Pattern) -> io::Result<()> {
-    for chunk in buf.split(|b| *b == b'\0') {
+    for chunk in NullSplit(buf) {
         if chunk.is_empty() {
             continue;
         }
 
         // slice::split_once is unstable so do it ourselves
-        let (key, val) = match chunk.iter().position(|b| *b == b'=') {
+        let (key, val) = match memchr::memchr(b'=', chunk) {
             Some(pos) => {
                 let (left, right) = chunk.split_at(pos);
                 (left, &right[1..])
             }
-            // constructing an empty slice is annoying, because &[] is considered a reference to
-            // a zero-length array, so then we have to index it to actually get a slice.
-            None => (chunk, &[][..]),
+            None => (chunk, [].as_slice()),
         };
 
         if !pattern.is_match(key) {
@@ -163,4 +194,35 @@ fn main() {
         }
         std::process::exit(1);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn test_nullsplit() {
+    let mut i = NullSplit(b"abc\0def\0ghi\0jkl\0");
+    assert_eq!(i.next(), Some(b"abc".as_slice()));
+    assert_eq!(i.next(), Some(b"def".as_slice()));
+    assert_eq!(i.next(), Some(b"ghi".as_slice()));
+    assert_eq!(i.next(), Some(b"jkl".as_slice()));
+    assert_eq!(i.next(), None);
+
+    let mut i = NullSplit(b"");
+    assert_eq!(i.next(), None);
+
+    let mut i = NullSplit(b"\0one\0two");
+    assert_eq!(i.next(), Some(b"".as_slice()));
+    assert_eq!(i.next(), Some(b"one".as_slice()));
+    assert_eq!(i.next(), Some(b"two".as_slice()));
+    assert_eq!(i.next(), None);
+
+    let mut i = NullSplit(b"one\0\0\0two");
+    assert_eq!(i.next(), Some(b"one".as_slice()));
+    assert_eq!(i.next(), Some(b"".as_slice()));
+    assert_eq!(i.next(), Some(b"".as_slice()));
+    assert_eq!(i.next(), Some(b"two".as_slice()));
+    assert_eq!(i.next(), None);
+
+    let mut i = NullSplit(b"abc");
+    assert_eq!(i.next(), Some(b"abc".as_slice()));
+    assert_eq!(i.next(), None);
 }
