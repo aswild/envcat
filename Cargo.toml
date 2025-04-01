@@ -2,7 +2,7 @@
 name = "envcat"
 version = "0.1.0"
 authors = ["Allen Wild <allenwild93@gmail.com>"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 anstream = "0.6.18"
