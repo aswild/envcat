@@ -75,38 +75,19 @@ impl<'a> Iterator for NullSplit<'a> {
     }
 }
 
-fn print_env<W: Write>(buf: &[u8], out: &mut W, pattern: &Pattern) -> io::Result<()> {
-    for chunk in NullSplit(buf) {
-        if chunk.is_empty() {
-            continue;
-        }
-
-        // slice::split_once is unstable so do it ourselves
-        let (key, val) = match memchr::memchr(b'=', chunk) {
-            Some(pos) => {
-                let (left, right) = chunk.split_at(pos);
-                (left, &right[1..])
-            }
-            None => (chunk, [].as_slice()),
-        };
-
-        if !pattern.is_match(key) {
-            continue;
-        }
-
-        // [u8] isn't Display so do it ourselves
-        STYLE_KEY.write_to(out)?;
-        out.write_all(key)?;
-        STYLE_KEY.write_reset_to(out)?;
-        write!(out, "{}={}", STYLE_EQU.render(), STYLE_EQU.render_reset())?;
-        if !val.is_empty() {
-            STYLE_VAL.write_to(out)?;
-            out.write_all(val)?;
-            STYLE_VAL.write_reset_to(out)?;
-        }
-        out.write_all(b"\n")?;
+/// pretty-print a key/value pair to `out`
+fn write_pair<W: Write>(out: &mut W, key: &[u8], val: &[u8]) -> io::Result<()> {
+    // [u8] isn't Display so do it ourselves
+    STYLE_KEY.write_to(out)?;
+    out.write_all(key)?;
+    STYLE_KEY.write_reset_to(out)?;
+    write!(out, "{}={}", STYLE_EQU.render(), STYLE_EQU.render_reset())?;
+    if !val.is_empty() {
+        STYLE_VAL.write_to(out)?;
+        out.write_all(val)?;
+        STYLE_VAL.write_reset_to(out)?;
     }
-
+    out.write_all(b"\n")?;
     Ok(())
 }
 
@@ -127,6 +108,10 @@ struct Args {
     /// PATTERN is case-sensitive
     #[arg(short = 's', long, requires = "pattern")]
     case_sensitive: bool,
+
+    /// Sort the list by <name>
+    #[arg(short = 'S', long)]
+    sort: bool,
 
     /// File path, omit or specify '-' to read stdin.
     ///
@@ -178,7 +163,7 @@ fn run() -> anyhow::Result<()> {
         }
     };
 
-    let data = match &path {
+    let buf = match &path {
         Some(path) => std::fs::read(path).with_context(|| format!("failed to read {path}"))?,
         None => {
             let mut buf = Vec::new();
@@ -190,8 +175,27 @@ fn run() -> anyhow::Result<()> {
         }
     };
 
+    let mut data: Vec<(&[u8], &[u8])> = NullSplit(&buf)
+        .filter(|chunk| !chunk.is_empty())
+        .map(|chunk| match memchr::memchr(b'=', chunk) {
+            Some(pos) => {
+                let (left, right) = chunk.split_at(pos);
+                (left, &right[1..])
+            }
+            None => (chunk, [].as_slice()),
+        })
+        .collect();
+
+    if args.sort {
+        data.sort();
+    }
+
     let mut out = anstream::stdout().lock();
-    print_env(&data, &mut out, &pattern)?;
+    for (key, val) in data.into_iter() {
+        if pattern.is_match(key) {
+            write_pair(&mut out, key, val)?;
+        }
+    }
 
     Ok(())
 }
