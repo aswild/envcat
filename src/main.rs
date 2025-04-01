@@ -1,6 +1,4 @@
-use std::ffi::OsStr;
 use std::io::{self, Read, Write};
-use std::os::unix::ffi::OsStrExt;
 
 use anstyle::{AnsiColor, Style};
 use anyhow::Context as _;
@@ -24,9 +22,21 @@ enum Pattern {
 
 impl Pattern {
     fn is_match(&self, name: &[u8]) -> bool {
+        #[cfg(unix)]
+        fn globs_matche_bytes(globs: &GlobSet, name: &[u8]) -> bool {
+            use std::ffi::OsStr;
+            use std::os::unix::ffi::OsStrExt;
+            globs.is_match(<OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(name))
+        }
+
+        #[cfg(windows)]
+        fn globs_matche_bytes(globs: &GlobSet, name: &[u8]) -> bool {
+            globs.is_match(&*String::from_utf8_lossy(name))
+        }
+
         match self {
             Self::Empty => true,
-            Self::Glob(globs) => globs.is_match(OsStr::from_bytes(name)),
+            Self::Glob(globs) => globs_matche_bytes(globs, name),
             Self::Regex(regexes) => regexes.is_match(name),
         }
     }
