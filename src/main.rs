@@ -172,7 +172,7 @@ fn run() -> anyhow::Result<()> {
         .collect();
 
     if args.sort {
-        data.sort();
+        data.sort_by_key(|(key, _val)| *key);
     }
 
     let mut out = anstream::stdout().lock();
