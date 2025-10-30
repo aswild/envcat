@@ -10,5 +10,4 @@ anstyle = "1.0.10"
 anyhow = "1.0.93"
 clap = { version = "4.5.20", features = ["cargo", "derive", "wrap_help"] }
 globset = "0.4.15"
-memchr = "2.7.4"
 regex = "1.11.1"

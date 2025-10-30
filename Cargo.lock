@@ -139,7 +139,6 @@ dependencies = [
  "anyhow",
  "clap",
  "globset",
- "memchr",
  "regex",
 ]
 
