@@ -14,6 +14,32 @@ const fn color_style(color: AnsiColor) -> Style {
     Style::new().fg_color(Some(anstyle::Color::Ansi(color)))
 }
 
+/// `GlobSet` only matches on `AsRef<Path>` types, extend it to accept arbitrary bytes as input too,
+/// since we're using it to match key names rather than file paths.
+trait GlobExt {
+    fn is_match_bytes(&self, needle: &[u8]) -> bool;
+}
+
+impl GlobExt for GlobSet {
+    fn is_match_bytes(&self, needle: &[u8]) -> bool {
+        // On unix, Path and OsStr are interchangeable with `&[u8]`
+        #[cfg(unix)]
+        {
+            use std::ffi::OsStr;
+            use std::os::unix::ffi::OsStrExt;
+            self.is_match(OsStr::from_bytes(needle))
+        }
+
+        // Otherwise (e.g. on windows) we can't directly interchange bytes and OsStr, so loop through
+        // UTF-8 to get a string that implements AsRef<Path>
+        #[cfg(not(unix))]
+        {
+            let s = String::from_utf8_lossy(needle);
+            self.is_match(&*s)
+        }
+    }
+}
+
 enum Pattern {
     Empty,
     Glob(GlobSet),
@@ -22,21 +48,9 @@ enum Pattern {
 
 impl Pattern {
     fn is_match(&self, name: &[u8]) -> bool {
-        #[cfg(unix)]
-        fn globs_matche_bytes(globs: &GlobSet, name: &[u8]) -> bool {
-            use std::ffi::OsStr;
-            use std::os::unix::ffi::OsStrExt;
-            globs.is_match(<OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(name))
-        }
-
-        #[cfg(windows)]
-        fn globs_matche_bytes(globs: &GlobSet, name: &[u8]) -> bool {
-            globs.is_match(&*String::from_utf8_lossy(name))
-        }
-
         match self {
             Self::Empty => true,
-            Self::Glob(globs) => globs_matche_bytes(globs, name),
+            Self::Glob(globs) => globs.is_match_bytes(name),
             Self::Regex(regexes) => regexes.is_match(name),
         }
     }
