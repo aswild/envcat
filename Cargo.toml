@@ -1,6 +1,6 @@
 [package]
 name = "envcat"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Allen Wild <allenwild93@gmail.com>"]
 edition = "2024"
 
